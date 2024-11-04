@@ -43,15 +43,19 @@ const musicGenres = [
     "Alternative"
 ];
 
+const MAX_POSITION = 20;
+
 // Функция для генерации случайных точек с подписями для некоторых из них
 function generateRandomPoints(numPoints, labels) {
   const points = [];
   for (let i = 0; i < numPoints; i++) {
     points.push({
       id: i,
-      x: (Math.random() - 0.5) * 20,  // Координаты x от -10 до 10
-      y: (Math.random() - 0.5) * 20,  // Координаты y от -10 до 10
-      z: (Math.random() - 0.5) * 20,  // Координаты z от -10 до 10
+      position: new THREE.Vector3(
+        (Math.random() - 0.5) * MAX_POSITION,
+        (Math.random() - 0.5) * MAX_POSITION,
+        (Math.random() - 0.5) * MAX_POSITION
+      ),
       label: i < labels.length ? labels[i] : null, // Добавляем подписи для первых нескольких точек
       frequency: Math.random() * 1 + 0.01,  // Случайная частота для каждой точки
     });
@@ -59,60 +63,65 @@ function generateRandomPoints(numPoints, labels) {
   return points;
 }
 
-const pointsData = generateRandomPoints(200, musicGenres);
 
-function Point({ position, onClick, selected, label, cameraPosition, frequency, amplitude }) {
+// Компонент точки
+function Point({ point, selected, onClick, cameraPosition, amplitude }) {
   const textRef = useRef();
   const pointRef = useRef();
 
-  const { scale, color } = useSpring({
+  // Настройка анимации позиции и других свойств с помощью useSpring
+  const { scale, color, position } = useSpring({
     scale: selected ? 1.5 : 1,
     color: selected ? 'red' : 'white',
+    position: point.position ? point.position.toArray() : [0, 0, 0],
     config: { tension: 200, friction: 15 },
   });
 
   useFrame((state) => {
     const time = state.clock.getElapsedTime();
+    const waveMovement = amplitude * Math.sin(time * point.frequency);
 
+    // Анимация перемещения точки по оси Y
     if (pointRef.current) {
-      const waveMovement = amplitude * Math.sin(time * frequency);
-      pointRef.current.position.y = position[1] + waveMovement;
-    }
-
-    if (textRef.current) {
-      textRef.current.lookAt(cameraPosition);
+      pointRef.current.position.y = position.get()[1] + waveMovement;
     }
   });
 
   return (
     <>
+      {/* Анимированная точка */}
       <a.mesh ref={pointRef} position={position} onClick={onClick} scale={scale}>
         <sphereGeometry args={[0.2, 32, 32]} />
         <a.meshStandardMaterial color={color} />
       </a.mesh>
-
-      {label && (
-        <Text
-          ref={textRef}
-          position={[position[0], position[1] + 0.4, position[2]]}
-          fontSize={0.3}
-          color="white"
-          anchorX="center"
-          anchorY="middle"
-        >
-          {label}
-        </Text>
+      
+      {/* Анимированный лейбл */}
+      {point.label && (
+        <a.group position={position}>
+          <Text
+            ref={textRef}
+            position={[0, 0.4, 0]} // Смещение текста по оси Y
+            fontSize={0.3}
+            color="white"
+            anchorX="center"
+            anchorY="middle"
+          >
+            {point.label}
+          </Text>
+        </a.group>
       )}
     </>
   );
 }
 
-function Scene({ amplitude, onPointClick, selectedPoint, setSelectedPoint }) {
+// Сцена с точками
+function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint }) {
   const cameraPosition = new THREE.Vector3(0, 0, 30);
 
   const handlePointClick = (id) => {
     setSelectedPoint(id === selectedPoint ? null : id);
-    onPointClick(); // Запуск аудио при клике на точку
+    // alert(selectedPoint);
+    onPointClick(id === selectedPoint);
   };
 
   return (
@@ -120,44 +129,43 @@ function Scene({ amplitude, onPointClick, selectedPoint, setSelectedPoint }) {
       <ambientLight intensity={0.5} />
       <pointLight position={[10, 10, 10]} />
       <OrbitControls enableZoom={true} />
-
-      {pointsData.map((point) => (
+      {points.map((point) => (
         <Point
           key={point.id}
-          position={[point.x, point.y, point.z]}
+          point={point}
           selected={point.id === selectedPoint}
           onClick={() => handlePointClick(point.id)}
-          label={point.label}
           cameraPosition={cameraPosition}
-          frequency={point.frequency}
-          amplitude={amplitude} // Передаем амплитуду точке
+          amplitude={amplitude}
         />
       ))}
     </>
   );
 }
 
+// Главный компонент приложения
 function App() {
   const [amplitude, setAmplitude] = useState(0);
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const audioRef = useRef(null); // Ссылка на текущий аудиофайл
+  const [points, setPoints] = useState(generateRandomPoints(200, musicGenres));
+  const audioRef = useRef(null);
   const analyzerRef = useRef(null);
   const dataArrayRef = useRef(null);
 
-  // Функция для воспроизведения случайного аудио
-  const playRandomAudio = () => {
-    // Остановим предыдущее аудио, если оно существует и воспроизводится
+  const playRandomAudio = (pause) => {
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.currentTime = 0; // Сбрасываем время до начала
+      audioRef.current.currentTime = 0;
+    }
+    if (pause) {
+      return;
     }
 
-    // Выбираем случайный файл и создаем новый аудиоконтекст
     const randomFile = audioFiles[Math.floor(Math.random() * audioFiles.length)];
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const audio = new Audio(randomFile);
     audio.loop = true;
-    audioRef.current = audio; // Сохраняем текущий аудиофайл в реф
+    audioRef.current = audio;
 
     const source = audioContext.createMediaElementSource(audio);
     const analyzer = audioContext.createAnalyser();
@@ -172,10 +180,9 @@ function App() {
     dataArrayRef.current = dataArray;
 
     audio.play();
-    audioContext.resume(); // Активируем аудиоконтекст для браузеров, которые требуют взаимодействия
+    audioContext.resume();
   };
 
-  // Обновление амплитуды
   useEffect(() => {
     const interval = setInterval(() => {
       if (analyzerRef.current && dataArrayRef.current) {
@@ -188,18 +195,35 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const shufflePoints = () => {
+    const newPoints = points.map((point) => ({
+      ...point,
+      position: new THREE.Vector3(
+        (Math.random() - 0.5) * MAX_POSITION,
+        (Math.random() - 0.5) * MAX_POSITION,
+        (Math.random() - 0.5) * MAX_POSITION
+      ),
+    }));
+    setPoints(newPoints);
+  };
+
   return (
-    <>
-      <Canvas camera={{ position: [0, 0, 30], fov: 40 }}>
+    <div style={{ height: '100vh', width: '100vw' }}>
+      <button onClick={shufflePoints} style={{ position: 'absolute', top: 20, left: 20, zIndex: 1 }}>
+        Reshuffle
+      </button>
+      <Canvas camera={{ position: [0, 0, 30], fov: 60 }} style={{ height: '100%', width: '100%' }}>
         <Scene
+          points={points}
           amplitude={amplitude}
-          onPointClick={playRandomAudio} // Воспроизведение случайного аудио при нажатии на точку
+          onPointClick={playRandomAudio}
           selectedPoint={selectedPoint}
           setSelectedPoint={setSelectedPoint}
         />
       </Canvas>
-    </>
+    </div>
   );
 }
 
 export default App;
+
