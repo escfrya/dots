@@ -2,9 +2,10 @@
 import styles from './App.css';
 
 // src/App.js
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Text } from '@react-three/drei';
+import { OrbitControls, Text, PointLightHelper } from '@react-three/drei';
+
 import { a, useSpring } from '@react-spring/three';
 import * as THREE from 'three';
 
@@ -43,10 +44,15 @@ const musicGenres = [
     "Alternative"
 ];
 
+const redColor = new THREE.Color("#F44336").convertSRGBToLinear();
+const whiteColor = new THREE.Color("#FFFFFF").convertSRGBToLinear();
+const blueColor = new THREE.Color("#E3F2FD").convertSRGBToLinear();
+
 const MAX_POSITION = 20;
+const NUM_POINTS = 100;
 
 // Функция для генерации случайных точек с подписями для некоторых из них
-function generateRandomPoints(numPoints, labels) {
+function generateRandomPoints(numPoints) {
   const points = [];
   for (let i = 0; i < numPoints; i++) {
     points.push({
@@ -56,24 +62,75 @@ function generateRandomPoints(numPoints, labels) {
         (Math.random() - 0.5) * MAX_POSITION,
         (Math.random() - 0.5) * MAX_POSITION
       ),
-      label: i < labels.length ? labels[i] : null, // Добавляем подписи для первых нескольких точек
+      timeOffset: Math.random() * 10,
+      color1: blueColor,
+      color2: whiteColor,
+      label: i < musicGenres.length ? musicGenres[i] : null, // Добавляем подписи для первых нескольких точек
       frequency: Math.random() * 1 + 0.01,  // Случайная частота для каждой точки
     });
   }
   return points;
 }
 
+const AnimatedGradientMaterial = ({ color1, color2, timeOffset }) => {
+  const materialRef = useRef();
 
-// Компонент точки
-function Point({ point, selected, onClick, cameraPosition, amplitude }) {
+  useEffect(() => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.color1.value = color1;
+      materialRef.current.uniforms.color2.value = color2;
+    }
+  }, [color1, color2]);
+
+  useFrame((state) => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.time.value = state.clock.getElapsedTime() + timeOffset;
+    }
+  });
+
+  const uniforms = useMemo(() => ({
+    time: { value: 0 },
+    color1: { value: color1 },
+    color2: { value: color2 },
+  }), []);
+
+  return (
+    <shaderMaterial
+      ref={materialRef}
+      vertexShader={`
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `}
+      fragmentShader={`
+        uniform float time;
+        uniform vec3 color1;
+        uniform vec3 color2;
+        varying vec2 vUv;
+
+        void main() {
+          float radialGradient = length(vUv - 0.5) * 2.0;
+          float animatedGradient = sin(time + radialGradient * 5.0) * 0.5 + 0.5;
+          vec3 color = mix(color1, color2, animatedGradient);
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `}
+      uniforms={uniforms}
+    />
+  );
+};
+
+function Point({ point, selected, onClick, camera, amplitude }) {
   const textRef = useRef();
   const pointRef = useRef();
 
-  // Настройка анимации позиции и других свойств с помощью useSpring
-  const { scale, color, position } = useSpring({
-    scale: selected ? 1.5 : 1,
-    color: selected ? 'red' : 'white',
-    position: point.position ? point.position.toArray() : [0, 0, 0],
+  const initialPosition = point.position;
+
+  const { scale, position } = useSpring({
+    scale: selected ? 2.0 : 1,
+    position: initialPosition.toArray(),
     config: { tension: 200, friction: 15 },
   });
 
@@ -89,18 +146,20 @@ function Point({ point, selected, onClick, cameraPosition, amplitude }) {
 
   return (
     <>
-      {/* Анимированная точка */}
       <a.mesh ref={pointRef} position={position} onClick={onClick} scale={scale}>
         <sphereGeometry args={[0.2, 32, 32]} />
-        <a.meshStandardMaterial color={color} />
+        <AnimatedGradientMaterial 
+          color1={selected ? redColor : point.color1} 
+          color2={point.color2}
+          timeOffset={point.timeOffset}
+        />
       </a.mesh>
-      
-      {/* Анимированный лейбл */}
+
       {point.label && (
-        <a.group position={position}>
+        <group position={initialPosition.toArray()}>
           <Text
             ref={textRef}
-            position={[0, 0.4, 0]} // Смещение текста по оси Y
+            position={[0, 0.4, 0]}
             fontSize={0.3}
             color="white"
             anchorX="center"
@@ -108,25 +167,34 @@ function Point({ point, selected, onClick, cameraPosition, amplitude }) {
           >
             {point.label}
           </Text>
-        </a.group>
+        </group>
       )}
     </>
   );
 }
 
-// Сцена с точками
-function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint }) {
-  const cameraPosition = new THREE.Vector3(0, 0, 30);
 
+function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint }) {
   const handlePointClick = (id) => {
     setSelectedPoint(id === selectedPoint ? null : id);
-    // alert(selectedPoint);
     onPointClick(id === selectedPoint);
   };
 
   return (
     <>
-      <ambientLight intensity={0.5} />
+      <ambientLight intensity={0.3} />
+      <directionalLight
+        position={[10, 10, 5]}
+        intensity={1}
+        castShadow
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-camera-far={50}
+        shadow-camera-left={-10}
+        shadow-camera-right={10}
+        shadow-camera-top={10}
+        shadow-camera-bottom={-10}
+      />
       <pointLight position={[10, 10, 10]} />
       <OrbitControls enableZoom={true} />
       {points.map((point) => (
@@ -135,7 +203,7 @@ function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoin
           point={point}
           selected={point.id === selectedPoint}
           onClick={() => handlePointClick(point.id)}
-          cameraPosition={cameraPosition}
+          camera={new THREE.Vector3(0, 0, 30)}
           amplitude={amplitude}
         />
       ))}
@@ -143,11 +211,10 @@ function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoin
   );
 }
 
-// Главный компонент приложения
 function App() {
   const [amplitude, setAmplitude] = useState(0);
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const [points, setPoints] = useState(generateRandomPoints(200, musicGenres));
+  const [points, setPoints] = useState(generateRandomPoints(NUM_POINTS));
   const audioRef = useRef(null);
   const analyzerRef = useRef(null);
   const dataArrayRef = useRef(null);
@@ -212,7 +279,7 @@ function App() {
       <button onClick={shufflePoints} style={{ position: 'absolute', top: 20, left: 20, zIndex: 1 }}>
         Reshuffle
       </button>
-      <Canvas camera={{ position: [0, 0, 30], fov: 60 }} style={{ height: '100%', width: '100%' }}>
+      <Canvas camera={{ position: [0, 0, 30], fov: 35 }} style={{ height: '100%', width: '100%' }}>
         <Scene
           points={points}
           amplitude={amplitude}
