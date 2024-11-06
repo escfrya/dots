@@ -156,7 +156,83 @@ function Point({ point, selected, onClick, amplitude, visible, showLabels }) {
   );
 }
 
-function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint, showPoints, showLabels }) {
+function MovingSphere({ color, size }) {
+  const sphereRef = useRef();
+
+  // Генерация случайных начальных позиций для каждой сферы
+  const initialPosition = useMemo(() => ({
+    x: (Math.random() - 0.5) * 20, // Случайное значение между -10 и 10
+    y: (Math.random() - 0.5) * 20, // Случайное значение между -10 и 10
+    z: (Math.random() - 0.5) * 20, // Случайное значение между -10 и 10
+  }), []);
+
+  // Устанавливаем начальную, более медленную скорость
+  const initialSpeed = useMemo(() => ({
+    x: Math.random() * 0.01 + 0.005,
+    y: Math.random() * 0.01 + 0.005,
+    z: Math.random() * 0.01 + 0.005,
+  }), []);
+
+  const [currentSpeed, setCurrentSpeed] = useState(initialSpeed);
+  const [targetSpeed, setTargetSpeed] = useState(initialSpeed);
+
+  const radius = 12;
+
+  // Функция для генерации случайной скорости
+  const generateRandomSpeed = () => ({
+    x: Math.random() * 0.01 + 0.005,
+    y: Math.random() * 0.01 + 0.005,
+    z: Math.random() * 0.01 + 0.005,
+  });
+
+  // Функция для генерации случайного направления
+  const getRandomDirection = () => ({
+    x: Math.random() > 0.5 ? 1 : -1,
+    y: Math.random() > 0.5 ? 1 : -1,
+    z: Math.random() > 0.5 ? 1 : -1,
+  });
+
+  const [currentDirection, setCurrentDirection] = useState(getRandomDirection());
+  const [targetDirection, setTargetDirection] = useState(getRandomDirection);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTargetDirection(getRandomDirection());
+      setTargetSpeed(generateRandomSpeed());
+    }, 10000 + Math.random() * 2000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useFrame((state) => {
+    const time = state.clock.getElapsedTime();
+
+    // Плавно изменяем текущее направление и скорость к целевым значениям
+    currentDirection.x = THREE.MathUtils.lerp(currentDirection.x, targetDirection.x, 0.01);
+    currentDirection.y = THREE.MathUtils.lerp(currentDirection.y, targetDirection.y, 0.01);
+    currentDirection.z = THREE.MathUtils.lerp(currentDirection.z, targetDirection.z, 0.01);
+
+    currentSpeed.x = THREE.MathUtils.lerp(currentSpeed.x, targetSpeed.x, 0.01);
+    currentSpeed.y = THREE.MathUtils.lerp(currentSpeed.y, targetSpeed.y, 0.01);
+    currentSpeed.z = THREE.MathUtils.lerp(currentSpeed.z, targetSpeed.z, 0.01);
+
+    // Плавное движение по заданной траектории
+    if (sphereRef.current) {
+      sphereRef.current.position.x = initialPosition.x + radius * Math.sin(time * currentSpeed.x) * currentDirection.x;
+      sphereRef.current.position.y = initialPosition.y + radius * Math.cos(time * currentSpeed.y) * currentDirection.y * 0.5;
+      sphereRef.current.position.z = initialPosition.z + radius * Math.sin(time * currentSpeed.z) * currentDirection.z;
+    }
+  });
+
+  return (
+    <mesh ref={sphereRef}>
+      <sphereGeometry args={[size, 32, 32]} />
+      <meshStandardMaterial color={color} opacity={0.2} transparent />
+    </mesh>
+  );
+}
+
+function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint, showPoints, showLabels, showUsers }) {
   const handlePointClick = (id) => {
     setSelectedPoint(id === selectedPoint ? null : id);
     onPointClick(id === selectedPoint);
@@ -166,6 +242,15 @@ function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoin
     <>
       <ambientLight intensity={0.3} />
       <pointLight position={[10, 10, 10]} />
+
+      {showUsers && (
+        <>
+          <MovingSphere color="#FF6347" size={0.7} />
+          <MovingSphere color="#FFFF00" size={0.7} />
+          <MovingSphere color="#32CD32" size={0.7} />
+        </>
+      )}
+
       {points.map((point) => (
         <Point
           key={point.id}
@@ -188,6 +273,7 @@ function App() {
   const [showPoints, setShowPoints] = useState(false);
   const [showBigSphere, setShowBigSphere] = useState(true);
   const [showLabels, setShowLabels] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const [selectedSegment, setSelectedSegment] = useState(segments[0]);
   const audioRef = useRef(null);
   const analyzerRef = useRef(null);
@@ -235,6 +321,12 @@ function App() {
     });
   };
 
+  const showUsersByTimer = () => {
+    const interval = setTimeout(() => {
+      setShowUsers(true);
+    }, 0.5*1000);
+  };
+
   useEffect(() => {
     const interval = setInterval(() => {
       if (analyzerRef.current && dataArrayRef.current) {
@@ -251,6 +343,7 @@ function App() {
     setShowBigSphere(false);
     setShowPoints(true);
     setShowLabels(true);
+    showUsersByTimer();
   };
 
   const handleSegmentClick = (segment) => {
@@ -288,6 +381,7 @@ function App() {
           setSelectedPoint={setSelectedPoint}
           showPoints={showPoints}
           showLabels={showLabels}
+          showUsers={showUsers}
         />
       </Canvas>
 
