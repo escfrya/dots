@@ -11,3 +11,12 @@ canvas {
   display: block;
   background-color: black;
 }
+
+#segment {
+  position: absolute;
+  left: 50%;
+  bottom: 50px;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  zIndex: 1;
+}

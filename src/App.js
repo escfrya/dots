@@ -1,10 +1,8 @@
-
 import styles from './App.css';
 
-// src/App.js
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Text, PointLightHelper } from '@react-three/drei';
+import { OrbitControls, Text } from '@react-three/drei';
 
 import { a, useSpring } from '@react-spring/three';
 import * as THREE from 'three';
@@ -22,27 +20,11 @@ const audioFiles = [
 ];
 
 const musicGenres = [
-    "Pop",
-    "Rock",
-    "Hip-Hop",
-    "Jazz",
-    "Classical",
-    "Blues",
-    "Electronic",
-    "Country",
-    "Reggae",
-    "R&B",
-    "Metal",
-    "Folk",
-    "Punk",
-    "Disco",
-    "Soul",
-    "Indie",
-    "Gospel",
-    "Latin",
-    "Ska",
-    "Alternative"
+  "Pop", "Rock", "Hip-Hop", "Jazz", "Classical", "Blues", "Electronic", "Country", "Reggae", "R&B",
+  "Metal", "Folk", "Punk", "Disco", "Soul", "Indie", "Gospel", "Latin", "Ska", "Alternative"
 ];
+
+const segments = ['vocal', 'melody', 'bass', 'drums'];
 
 const redColor = new THREE.Color("#F44336").convertSRGBToLinear();
 const whiteColor = new THREE.Color("#FFFFFF").convertSRGBToLinear();
@@ -51,7 +33,6 @@ const blueColor = new THREE.Color("#E3F2FD").convertSRGBToLinear();
 const MAX_POSITION = 20;
 const NUM_POINTS = 100;
 
-// Функция для генерации случайных точек с подписями для некоторых из них
 function generateRandomPoints(numPoints) {
   const points = [];
   for (let i = 0; i < numPoints; i++) {
@@ -65,8 +46,8 @@ function generateRandomPoints(numPoints) {
       timeOffset: Math.random() * 10,
       color1: blueColor,
       color2: whiteColor,
-      label: i < musicGenres.length ? musicGenres[i] : null, // Добавляем подписи для первых нескольких точек
-      frequency: Math.random() * 1 + 0.01,  // Случайная частота для каждой точки
+      label: i < musicGenres.length ? musicGenres[i] : null,
+      frequency: Math.random() * 1 + 0.01,
     });
   }
   return points;
@@ -122,15 +103,19 @@ const AnimatedGradientMaterial = ({ color1, color2, timeOffset }) => {
   );
 };
 
-function Point({ point, selected, onClick, camera, amplitude }) {
-  const textRef = useRef();
+function Point({ point, selected, onClick, amplitude, visible, showLabels }) {
   const pointRef = useRef();
 
   const initialPosition = point.position;
 
   const { scale, position } = useSpring({
     scale: selected ? 2.0 : 1,
-    position: initialPosition.toArray(),
+    position: visible ? initialPosition.toArray() : [0, 0, 0],
+    config: { tension: 200, friction: 15 },
+  });
+
+  const { labelPosition } = useSpring({
+    labelPosition: visible ? initialPosition.toArray() : [0, 0, 0],
     config: { tension: 200, friction: 15 },
   });
 
@@ -138,7 +123,6 @@ function Point({ point, selected, onClick, camera, amplitude }) {
     const time = state.clock.getElapsedTime();
     const waveMovement = amplitude * Math.sin(time * point.frequency);
 
-    // Анимация перемещения точки по оси Y
     if (pointRef.current) {
       pointRef.current.position.y = position.get()[1] + waveMovement;
     }
@@ -146,7 +130,7 @@ function Point({ point, selected, onClick, camera, amplitude }) {
 
   return (
     <>
-      <a.mesh ref={pointRef} position={position} onClick={onClick} scale={scale}>
+      <a.mesh ref={pointRef} position={position} onClick={onClick} scale={scale} visible={visible}>
         <sphereGeometry args={[0.2, 32, 32]} />
         <AnimatedGradientMaterial 
           color1={selected ? redColor : point.color1} 
@@ -155,10 +139,9 @@ function Point({ point, selected, onClick, camera, amplitude }) {
         />
       </a.mesh>
 
-      {point.label && (
-        <group position={initialPosition.toArray()}>
+      {point.label && showLabels && (
+        <a.mesh position={labelPosition}>
           <Text
-            ref={textRef}
             position={[0, 0.4, 0]}
             fontSize={0.3}
             color="white"
@@ -167,14 +150,13 @@ function Point({ point, selected, onClick, camera, amplitude }) {
           >
             {point.label}
           </Text>
-        </group>
+        </a.mesh>
       )}
     </>
   );
 }
 
-
-function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint }) {
+function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoint, showPoints, showLabels }) {
   const handlePointClick = (id) => {
     setSelectedPoint(id === selectedPoint ? null : id);
     onPointClick(id === selectedPoint);
@@ -183,28 +165,16 @@ function Scene({ points, amplitude, onPointClick, selectedPoint, setSelectedPoin
   return (
     <>
       <ambientLight intensity={0.3} />
-      <directionalLight
-        position={[10, 10, 5]}
-        intensity={1}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-        shadow-camera-far={50}
-        shadow-camera-left={-10}
-        shadow-camera-right={10}
-        shadow-camera-top={10}
-        shadow-camera-bottom={-10}
-      />
       <pointLight position={[10, 10, 10]} />
-      <OrbitControls enableZoom={true} />
       {points.map((point) => (
         <Point
           key={point.id}
           point={point}
           selected={point.id === selectedPoint}
           onClick={() => handlePointClick(point.id)}
-          camera={new THREE.Vector3(0, 0, 30)}
           amplitude={amplitude}
+          visible={showPoints}
+          showLabels={showLabels}
         />
       ))}
     </>
@@ -215,9 +185,14 @@ function App() {
   const [amplitude, setAmplitude] = useState(0);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [points, setPoints] = useState(generateRandomPoints(NUM_POINTS));
+  const [showPoints, setShowPoints] = useState(false);
+  const [showBigSphere, setShowBigSphere] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
+  const [selectedSegment, setSelectedSegment] = useState(segments[0]);
   const audioRef = useRef(null);
   const analyzerRef = useRef(null);
   const dataArrayRef = useRef(null);
+  const canvasRef = useRef();
 
   const playRandomAudio = (pause) => {
     if (audioRef.current) {
@@ -250,6 +225,16 @@ function App() {
     audioContext.resume();
   };
 
+  const reshaffle = () => {
+    points.forEach(point => {
+      point.position = new THREE.Vector3(
+        (Math.random() - 0.5) * MAX_POSITION,
+        (Math.random() - 0.5) * MAX_POSITION,
+        (Math.random() - 0.5) * MAX_POSITION
+      );
+    });
+  };
+
   useEffect(() => {
     const interval = setInterval(() => {
       if (analyzerRef.current && dataArrayRef.current) {
@@ -262,35 +247,73 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const shufflePoints = () => {
-    const newPoints = points.map((point) => ({
-      ...point,
-      position: new THREE.Vector3(
-        (Math.random() - 0.5) * MAX_POSITION,
-        (Math.random() - 0.5) * MAX_POSITION,
-        (Math.random() - 0.5) * MAX_POSITION
-      ),
-    }));
-    setPoints(newPoints);
+  const handleBigSphereClick = () => {
+    setShowBigSphere(false);
+    setShowPoints(true);
+    setShowLabels(true);
+  };
+
+  const handleSegmentClick = (segment) => {
+    setSelectedSegment(segment);
+    reshaffle();
   };
 
   return (
-    <div style={{ height: '100vh', width: '100vw' }}>
-      <button onClick={shufflePoints} style={{ position: 'absolute', top: 20, left: 20, zIndex: 1 }}>
-        Reshuffle
-      </button>
-      <Canvas camera={{ position: [0, 0, 30], fov: 35 }} style={{ height: '100%', width: '100%' }}>
+    <div style={{ height: '100%', width: '100%' }}>
+      <Canvas ref={canvasRef} camera={{ position: [0, 0, 30], fov: 35 }} style={{ height: '100%', width: '100%' }}>
+        {canvasRef.current && <OrbitControls enableZoom={true} />}
+        {showBigSphere && (
+          <>
+            <mesh onClick={handleBigSphereClick}>
+              <sphereGeometry args={[5, 64, 64]} />
+              <meshStandardMaterial color={whiteColor} />
+            </mesh>
+
+            <Text
+              position={[0, -7, 0]}
+              fontSize={4.0}
+              color="white" 
+              anchorX="center"
+              anchorY="middle"
+            >
+              megatrack
+            </Text>
+          </>
+        )}
         <Scene
           points={points}
           amplitude={amplitude}
           onPointClick={playRandomAudio}
           selectedPoint={selectedPoint}
           setSelectedPoint={setSelectedPoint}
+          showPoints={showPoints}
+          showLabels={showLabels}
         />
       </Canvas>
+
+      {showPoints && (
+        <div id="segment" className="segmented-control">
+          {segments.map((segment) => (
+            <button
+              key={segment}
+              onClick={() => handleSegmentClick(segment)}
+              style={{
+                backgroundColor: selectedSegment === segment ? '#F44336' : '#E3F2FD',
+                color: selectedSegment === segment ? 'white' : 'black',
+                fontWeight: selectedSegment === segment ? 'bold' : 'normal',
+                border: 'none',
+                padding: '10px 20px',
+                margin: '5px',
+                borderRadius: '5px',
+              }}
+            >
+              {segment.charAt(0).toUpperCase() + segment.slice(1)} 
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 export default App;
-
